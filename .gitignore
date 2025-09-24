@@ -1,0 +1,10 @@
+.venv
+.env.*
+secrets.yml
+secrets/seedbox-autoinstall.yml
+cloud-init/v1/hosts/caroline/
+cloud-init/v2/
+.ruff_cache/
+.mypy_cache/
+.vscode/
+TODO.md

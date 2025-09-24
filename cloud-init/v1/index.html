@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Seedbox Autoinstall v1</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, sans-serif; margin: 2rem; line-height: 1.5; }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+    pre { padding: .75rem; border: 1px solid #8884; border-radius: .5rem; overflow-x: auto; }
+    .grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+    .card { border: 1px solid #8884; border-radius: .5rem; padding: 1rem; }
+    h1 { margin-top: 0; }
+    small { color: #666; }
+    ul { margin-top: .25rem; }
+  </style>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://api.qrserver.com; connect-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'"> 
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <meta name="description" content="How to boot Ubuntu Server with autoinstall using NoCloud-Net and available host seeds." />
+  <meta name="robots" content="noindex" />
+  <link rel="icon" href="data:," />
+  <script>
+    // Infer base URL so examples render correctly regardless of hostname/path
+    document.addEventListener('DOMContentLoaded', () => {
+      const pathBase = location.pathname.replace(/\/index\.html$/, '').replace(/\/$/, '')
+      const defaultBase = location.origin + pathBase
+      const el = document.getElementById('example-url')
+
+      const ipv4Pattern = /^(?:\d{1,3}\.){3}\d{1,3}$/
+      const storedIp = (localStorage && localStorage.getItem('serverIp')) || ''
+      const isStoredIpValid = ipv4Pattern.test(storedIp)
+      const usedHost = isStoredIpValid ? storedIp : location.hostname
+      const usedOrigin = `${location.protocol}//${usedHost}${location.port ? `:${location.port}` : ''}`
+      const base = `${usedOrigin}${pathBase}`
+      if (el) el.textContent = `${base}/hosts/<hostname>/`
+
+      // Server Info wiring
+      const hostEl = document.getElementById('server-hostname')
+      if (hostEl) hostEl.textContent = location.hostname || '(unknown)'
+      const ipDisplayEl = document.getElementById('server-ip-display')
+      const ipInputEl = document.getElementById('server-ip-input')
+      const saveBtn = document.getElementById('server-ip-save')
+      const clearBtn = document.getElementById('server-ip-clear')
+      const applyIp = () => {
+        if (ipDisplayEl) ipDisplayEl.textContent = isStoredIpValid ? storedIp : '(not set)'
+        // Rebuild example URL using the stored IP when valid
+        const usedHostNow = (ipInputEl && ipv4Pattern.test(ipInputEl.value)) ? ipInputEl.value : (isStoredIpValid ? storedIp : location.hostname)
+        const usedOriginNow = `${location.protocol}//${usedHostNow}${location.port ? `:${location.port}` : ''}`
+        const baseNow = `${usedOriginNow}${pathBase}`
+        if (el) el.textContent = `${baseNow}/hosts/<hostname>/`
+      }
+      applyIp()
+      if (ipInputEl && isStoredIpValid) ipInputEl.value = storedIp
+      if (saveBtn) saveBtn.addEventListener('click', () => {
+        const candidate = (ipInputEl && ipInputEl.value.trim()) || ''
+        if (ipv4Pattern.test(candidate)) {
+          try { localStorage.setItem('serverIp', candidate) } catch (_) {}
+        }
+        window.location.reload()
+      })
+      if (clearBtn) clearBtn.addEventListener('click', () => {
+        try { localStorage.removeItem('serverIp') } catch (_) {}
+        window.location.reload()
+      })
+
+      // Optional same-origin auto-detect hooks (if files are present)
+      const tryFetchText = async (url) => {
+        try {
+          const res = await fetch(url, { credentials: 'same-origin', cache: 'no-store' })
+          if (!res.ok) return ''
+          return (await res.text()).trim()
+        } catch (_) { return '' }
+      }
+      const tryFetchJson = async (url) => {
+        try {
+          const res = await fetch(url, { credentials: 'same-origin', cache: 'no-store' })
+          if (!res.ok) return null
+          return await res.json()
+        } catch (_) { return null }
+      }
+      ;(async () => {
+        const info = await tryFetchJson('server-info.json')
+        let detectedIp = ''
+        let detectedHost = ''
+        if (info && typeof info === 'object') {
+          if (typeof info.ip === 'string') detectedIp = info.ip.trim()
+          if (typeof info.hostname === 'string') detectedHost = info.hostname.trim()
+        }
+        if (!detectedIp) detectedIp = await tryFetchText('server-ip')
+        if (!detectedHost) detectedHost = await tryFetchText('server-hostname')
+
+        if (detectedHost && hostEl) hostEl.textContent = detectedHost
+        if (detectedIp && ipv4Pattern.test(detectedIp)) {
+          if (ipDisplayEl) ipDisplayEl.textContent = detectedIp
+          // Prefer detected IP over stored IP
+          const usedOriginAuto = `${location.protocol}//${detectedIp}${location.port ? `:${location.port}` : ''}`
+          const baseAuto = `${usedOriginAuto}${pathBase}`
+          if (el) el.textContent = `${baseAuto}/hosts/<hostname>/`
+        }
+      })()
+      
+      // Populate hosts from directory listing + filtering
+      const listEl = document.getElementById('hosts-list')
+      if (!listEl) return
+      const filterInput = document.getElementById('hosts-filter')
+      const refreshBtn = document.getElementById('hosts-refresh')
+      let allHosts = []
+      const renderHosts = (hosts) => {
+        const container = document.createElement('div')
+        container.className = 'hosts-grid'
+        hosts.forEach(name => {
+          const seedUrl = `${base}/hosts/${name}/`
+          const li = document.createElement('div')
+          li.className = 'host-item'
+          li.innerHTML = `<strong>${name}</strong>
+            <div><small>URL: <code>${seedUrl}</code></small></div>
+            <div><small>Last modified: <span data-host="${name}" class="host-lastmod">(loading…)</span></small></div>
+            <div class="host-links"><small>Files: <a href="hosts/${name}/meta-data">meta-data</a> · <a href="hosts/${name}/user-data">user-data</a></small></div>`
+          // Preview block
+          const previewWrap = document.createElement('div')
+          previewWrap.style.margin = '.25rem 0'
+          previewWrap.innerHTML = `<button class="btn" type="button" data-preview-btn="${name}">Preview user-data</button>
+            <pre style="display:none" data-preview-block="${name}"><code>(loading…)</code></pre>`
+          li.appendChild(previewWrap)
+          container.appendChild(li)
+        })
+        listEl.innerHTML = ''
+        listEl.appendChild(container)
+        // Fetch last-modified for each host
+        const lastmodSpans = container.querySelectorAll('span.host-lastmod')
+        lastmodSpans.forEach(async span => {
+          const n = span.getAttribute('data-host') || ''
+          try {
+            const res = await fetch(`hosts/${n}/meta-data`, { method: 'HEAD', cache: 'no-store' })
+            let lm = res.headers.get('Last-Modified') || res.headers.get('last-modified') || ''
+            if (!lm) {
+              // Fallback to GET if HEAD unsupported
+              const resGet = await fetch(`hosts/${n}/meta-data`, { method: 'GET', cache: 'no-store' })
+              lm = resGet.headers.get('Last-Modified') || ''
+            }
+            span.textContent = lm || 'unknown'
+          } catch (_) {
+            span.textContent = 'unknown'
+          }
+        })
+        // Wire preview toggles
+        const escapeHtml = (s) => s
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+        container.querySelectorAll('button[data-preview-btn]').forEach(btn => {
+          btn.addEventListener('click', async (e) => {
+            const host = e.currentTarget.getAttribute('data-preview-btn') || ''
+            const block = container.querySelector(`pre[data-preview-block="${host}"]`)
+            if (!block) return
+            const isHidden = block.style.display === 'none'
+            if (isHidden) {
+              block.style.display = 'block'
+              try {
+                const res = await fetch(`hosts/${host}/user-data`, { cache: 'no-store' })
+                const text = await res.text()
+                const firstLines = text.split(/\r?\n/).slice(0, 20).join('\n')
+                block.innerHTML = `<code>${escapeHtml(firstLines)}</code>`
+              } catch (_) {
+                block.innerHTML = '<code>(failed to load)</code>'
+              }
+              e.currentTarget.textContent = 'Hide preview'
+            } else {
+              block.style.display = 'none'
+              e.currentTarget.textContent = 'Preview user-data'
+            }
+          })
+        })
+      }
+      const loadHosts = () => {
+        listEl.innerHTML = '<p><small>Loading host list…</small></p>'
+
+        const hostsPageUrl = new URL('hosts/', location.href)
+
+        const parseDirListing = (html) => {
+          const tmp = document.createElement('div')
+          tmp.innerHTML = html
+          const anchors = Array.from(tmp.querySelectorAll('a'))
+          const hostsAbsPath = hostsPageUrl.pathname.replace(/\/$/, '/')
+          return anchors
+            .map(a => a.getAttribute('href') || '')
+            .map(href => { try { return new URL(href, hostsPageUrl).pathname } catch (_) { return '' } })
+            .filter(p => !!p && p.startsWith(hostsAbsPath))
+            .filter(p => /\/$/.test(p))                       // directories only
+            .map(p => p.slice(hostsAbsPath.length))
+            .map(rest => rest.replace(/^\/+/, ''))
+            .map(rest => rest.split('/')[0] || '')
+            .filter(name => !!name && !name.startsWith('.') && name.toLowerCase() !== '.gitkeep')
+            .filter((v, i, arr) => arr.indexOf(v) === i)
+            .sort()
+        }
+
+        fetch(hostsPageUrl.href, { credentials: 'same-origin' })
+          .then(async (res) => {
+            const text = await res.text().catch(() => '')
+            if (!res.ok) {
+              const code = res.status || 'unknown'
+              listEl.innerHTML = `<p><small>Could not list hosts: HTTP ${code} from <code>${hostsPageUrl.pathname}</code>_<code>${hostsPageUrl.pathname}</code>.</small></p>`
+              return []
+            }
+            return parseDirListing(text)
+          })
+          .then((names) => {
+            if (!Array.isArray(names) || names.length === 0) {
+              // Explicit empty state (prevents “silent nothing”)
+              listEl.innerHTML = '<p><small>No hosts found in <code>hosts/</code> (directory listing returned no directories).</small></p>'
+              allHosts = []
+              return
+            }
+            allHosts = names
+            applyFilter()
+          })
+          .catch(() => {
+            listEl.innerHTML = '<p><small>Could not list hosts (network error). Check that <code>hosts/</code> is reachable.</small></p>'
+          })
+      }
+      const applyFilter = () => {
+        const q = (filterInput && filterInput.value || '').toLowerCase().trim()
+        const filtered = !q ? allHosts : allHosts.filter(n => n.toLowerCase().includes(q))
+        renderHosts(filtered)
+      }
+      if (filterInput) filterInput.addEventListener('input', applyFilter)
+      if (refreshBtn) refreshBtn.addEventListener('click', loadHosts)
+      loadHosts()
+
+      // Copy GRUB snippet to clipboard
+      const copyBtn = document.getElementById('copy-grub')
+      const statusEl = document.getElementById('copy-grub-status')
+      const snippetEl = document.getElementById('grub-snippet')
+      const getSnippetText = () => {
+        if (!snippetEl) return ''
+        const span = snippetEl.querySelector('#example-url')
+        // Build plain text with the computed example URL
+        const prefix = 'autoinstall ds="nocloud-net;s='
+        const suffix = '" ip=dhcp'
+        const baseUrl = span ? span.textContent : ''
+        return prefix + baseUrl + suffix
+      }
+      const setStatus = (msg) => { if (statusEl) { statusEl.textContent = msg; setTimeout(() => { statusEl.textContent = '' }, 2000) } }
+      if (copyBtn) {
+        copyBtn.addEventListener('click', async () => {
+          const text = getSnippetText()
+          try {
+            if (navigator.clipboard && window.isSecureContext) {
+              await navigator.clipboard.writeText(text)
+            } else {
+              // Fallback
+              const ta = document.createElement('textarea')
+              ta.value = text
+              ta.style.position = 'fixed'
+              ta.style.left = '-9999px'
+              document.body.appendChild(ta)
+              ta.focus(); ta.select()
+              document.execCommand('copy')
+              document.body.removeChild(ta)
+            }
+            setStatus('Copied!')
+          } catch (_) {
+            setStatus('Copy failed')
+          }
+        })
+      }
+
+      // Build QR for current page
+      const pageUrl = location.href
+      const qrImg = document.getElementById('qr-page-img')
+      const qrLink = document.getElementById('qr-page-link')
+      const qrTextLink = document.getElementById('qr-page-text-link')
+      const qrApi = 'https://api.qrserver.com/v1/create-qr-code/'
+      const qrSize = '512x512'
+      const qrSrc = `${qrApi}?size=${encodeURIComponent(qrSize)}&data=${encodeURIComponent(pageUrl)}`
+      if (qrImg) qrImg.src = qrSrc
+      if (qrLink) qrLink.href = pageUrl
+      if (qrTextLink) qrTextLink.href = pageUrl
+
+      // Theme + font size controls
+      const rootEl = document.documentElement
+      const themeLightBtn = document.getElementById('theme-light')
+      const themeDarkBtn = document.getElementById('theme-dark')
+      const fontIncBtn = document.getElementById('font-inc')
+      const fontDecBtn = document.getElementById('font-dec')
+      const fontResetBtn = document.getElementById('font-reset')
+      const THEME_KEY = 'uiTheme'
+      const FONT_KEY = 'uiFontScale'
+      const applyTheme = (mode) => {
+        rootEl.removeAttribute('data-theme')
+        if (mode === 'light' || mode === 'dark') rootEl.setAttribute('data-theme', mode)
+      }
+      const applyFont = (scale) => {
+        const base = 16
+        const clamped = Math.max(12, Math.min(22, Math.round(scale)))
+        rootEl.style.setProperty('--base-font-size', `${clamped}px`)
+      }
+      const storedTheme = (localStorage && localStorage.getItem(THEME_KEY)) || 'auto'
+      const storedFont = parseInt((localStorage && localStorage.getItem(FONT_KEY)) || '16', 10)
+      applyTheme(storedTheme)
+      applyFont(isNaN(storedFont) ? 16 : storedFont)
+      if (themeLightBtn) themeLightBtn.addEventListener('click', () => { try { localStorage.setItem(THEME_KEY, 'light') } catch(_){} applyTheme('light') })
+      if (themeDarkBtn) themeDarkBtn.addEventListener('click', () => { try { localStorage.setItem(THEME_KEY, 'dark') } catch(_){} applyTheme('dark') })
+      if (fontIncBtn) fontIncBtn.addEventListener('click', () => { const cur = parseInt(getComputedStyle(rootEl).getPropertyValue('--base-font-size')) || 16; const next = Math.min(cur + 2, 22); try { localStorage.setItem(FONT_KEY, String(next)) } catch(_){} applyFont(next) })
+      if (fontDecBtn) fontDecBtn.addEventListener('click', () => { const cur = parseInt(getComputedStyle(rootEl).getPropertyValue('--base-font-size')) || 16; const next = Math.max(cur - 2, 12); try { localStorage.setItem(FONT_KEY, String(next)) } catch(_){} applyFont(next) })
+      if (fontResetBtn) fontResetBtn.addEventListener('click', () => {
+        const deflt = 16
+        try { localStorage.setItem(FONT_KEY, String(deflt)) } catch(_){}
+        try { localStorage.setItem(THEME_KEY, 'auto') } catch(_){}
+        rootEl.removeAttribute('data-theme')
+        applyFont(deflt)
+      })
+    })
+  </script>
+  <!-- No external resources to keep it self-contained and safe to serve -->
+  <noscript>
+    <style>.js-note{display:none}</style>
+  </noscript>
+  <style>
+    .kbd { border: 1px solid #8884; border-bottom-width: 2px; padding: 0 .3rem; border-radius: .25rem; font-size: .95em; }
+    .btn { display: inline-block; padding: .5rem .75rem; border: 1px solid #8884; border-radius: .5rem; background: transparent; cursor: pointer; }
+    .btn:active { transform: translateY(1px); }
+    @media (pointer: coarse) { .btn { padding: .75rem 1rem; } }
+    .qr-img { max-width: 100%; height: auto; display: block; }
+    .qr-scale { width: 12em; height: 12em; object-fit: contain; }
+    /* Theme + font scale */
+    :root { --base-font-size: 16px; }
+    body { font-size: var(--base-font-size); }
+    [data-theme="dark"] { color-scheme: dark; }
+    [data-theme="light"] { color-scheme: light; }
+    .toolbar { position: sticky; top: 0; z-index: 10; padding: .5rem 0; margin-bottom: .5rem; backdrop-filter: blur(4px); }
+    .toolbar-inner { display: flex; gap: .5rem; align-items: center; justify-content: flex-end; }
+    .toolbar .group { display: inline-flex; gap: .25rem; align-items: center; }
+    .toolbar .label { font-size: .85em; opacity: .8; }
+    .control { padding: .4rem .6rem; border: 1px solid #8884; border-radius: .4rem; background: transparent; }
+    .controls { display: flex; gap: .5rem; align-items: center; margin-bottom: .5rem; flex-wrap: wrap; }
+    .host-links { margin-top: .15rem; opacity: .85; }
+    .host-links a { text-decoration: none; }
+    .host-links a:hover { text-decoration: underline; }
+    /* Compact hosts list (no bullets) */
+    .hosts-grid { display: flex; flex-direction: column; gap: .5rem; }
+    .host-item { padding: .25rem 0; border-top: 1px dashed #8884; }
+    .host-item:first-child { border-top: 0; }
+    /* Theme-aware link colors */
+    :root {
+      /* Light theme link palette */
+      --link: #0a66c2;
+      --link-visited: #0a66c2;
+      --link-hover: #0858a6;
+      --link-active: #074a8f;
+    }
+    [data-theme="dark"] {
+      /* Dark theme link palette */
+      --link: #7fb8ff;
+      --link-visited: #7fb8ff;
+      --link-hover: #a6cdff;
+      --link-active: #cce0ff;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme]) {
+        --link: #7fb8ff;
+        --link-visited: #7fb8ff;
+        --link-hover: #a6cdff;
+        --link-active: #cce0ff;
+      }
+    }
+    body a { color: var(--link) !important; }
+    body a:visited { color: var(--link-visited) !important; }
+    body a:hover { color: var(--link-hover) !important; }
+    body a:active { color: var(--link-active) !important; }
+  </style>
+  <base target="_blank">
+  
+  <!-- Static HTML only -->
+</head>
+<body>
+  <div class="toolbar">
+    <div class="toolbar-inner">
+      <div class="group">
+        <span class="label"></span>
+        <button class="btn" type="button" id="theme-light">Light</button>
+        <button class="btn" type="button" id="theme-dark">Dark</button>
+      </div>
+      <div class="group">
+        <span class="label"></span>
+        <button class="btn" type="button" id="font-dec">A-</button>
+        <button class="btn" type="button" id="font-inc">A+</button>
+        <button class="btn" type="button" id="font-reset" title="Reset theme and zoom" aria-label="Reset theme and zoom">↺</button>
+      </div>
+    </div>
+  </div>
+  <h1>Seedbox Autoinstall v1</h1>
+  <p>Use this page to quickly boot the Ubuntu installer with autoinstall and point it at a host seed directory.</p>
+
+
+  <div class="grid">
+    <section class="card">
+      <h2>GRUB: Trigger autoinstall</h2>
+      <ol>
+        <li>At the Ubuntu Server installer GRUB screen, press <span class="kbd">e</span> to edit.</li>
+        <li>Find the line starting with <code>linux</code> and append:</li>
+      </ol>
+      <pre><code id="grub-snippet">autoinstall ds="nocloud-net;s=<span id="example-url">http://YOUR-SERVER/cloud-init/v1/hosts/&lt;hostname&gt;/</span>" ip=dhcp</code></pre>
+      <p style="margin-top:.5rem"><button id="copy-grub" type="button" class="btn">Copy command</button> <small id="copy-grub-status" aria-live="polite" style="margin-left:.5rem"></small></p>
+      <p>Then press <span class="kbd">Ctrl</span>+<span class="kbd">X</span> (or <span class="kbd">F10</span>) to boot.</p>
+      <p class="js-note"><small>(This page auto-fills the correct URL base.)</small></p>
+    </section>
+  </div>
+  <div class="grid">
+
+    <section class="card">
+      <h2>Available Hosts</h2>
+      <div class="controls">
+        <input id="hosts-filter" class="control" type="search" placeholder="Filter hosts…" aria-label="Filter hosts">
+        <button id="hosts-refresh" class="btn" type="button">Refresh</button>
+      </div>
+      <div id="hosts-list"><p><small>Loading host list…</small></p></div>
+    </section>
+
+    <section class="card">
+      <h2>Server Info</h2>
+      <div>
+        <div><small>Hostname: <code id="server-hostname">(loading)</code></small></div>
+        <div><small>Server IP (local): <code id="server-ip-display">(not set)</code></small></div>
+        <div style="margin-top:.5rem">
+          <label for="server-ip-input"><small>Set server IP:</small></label>
+          <div>
+            <input id="server-ip-input" class="control" type="text" placeholder="e.g., 192.168.1.10" style="max-width:220px">
+            <button id="server-ip-save" type="button" class="btn">Save</button>
+            <button id="server-ip-clear" type="button" class="btn">Clear</button>
+          </div>
+        </div>
+        <p><small>Optional auto-detect files (if present): <code>server-info.json</code>, <code>server-ip</code>, <code>server-hostname</code>.</small></p>
+      </div>
+    </section>
+    <!--
+    <section class="card">
+      <h2>Requirements</h2>
+      <ul>
+        <li>Serve this folder over HTTP (e.g., <code>/var/www/html/cloud-init/v1/</code>).</li>
+        <li>Each host folder must contain <code>meta-data</code> and <code>user-data</code>.</li>
+        <li>Installer needs network (use <code>ip=dhcp</code> or pass static params).</li>
+      </ul>
+    </section>
+    -->
+    <section class="card">
+      <h2>Quick help</h2>
+      <pre><code>curl -s $(hostname -f)/cloud-init/v1/hosts/caroline/meta-data
+curl -s $(hostname -f)/cloud-init/v1/hosts/caroline/user-data | head</code></pre>
+      <p><small>Replace hostnames/paths to match your server.<br/>Everything should return a code 200.</small></p>
+      
+      <p align="center"><small><a href="https://github.com/tom4897/seedbox-autoinstall">Open repository</a></small></p>
+    </section>
+
+    <section class="card">
+      <h2>Open me</h2>
+      <p><small>Scan to open this page on your phone.</small></p>
+      <p align="center">
+        <a id="qr-page-link" href="#" target="_blank" rel="noopener">
+          <img id="qr-page-img" class="qr-img qr-scale" alt="QR code to this page" src="" />
+        </a>
+      </p>
+    </section>
+  </div>
+
+  <div class="grid" style="margin-top:1rem">
+    
+  </div>
+
+  <p align="center"><small>(c) 2025 <a href="https://deerhide.run">Deerhide</a>, <a href="https://github.com/tom4897">tom4897</a>. All rights reserved.<br>
+    License: <a href="https://github.com/DeerHide/seedbox-autoinstall/blob/main/LICENSE">MIT License</a> 
+    | Repo: <a href="https://github.com/tom4897/seedbox-autoinstall">tom4897/seedbox-autoinstall</a> 
+    | documentation: <a href="https://github.com/tom4897/seedbox-autoinstall/blob/main/README.md">README.md</a></small></p>
+</body>
+</html>
+

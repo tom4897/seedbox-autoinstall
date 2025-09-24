@@ -1,0 +1,116 @@
+#cloud-config
+autoinstall:
+  version: 1
+  interactive-sections: []
+  shutdown: reboot
+  reporting:
+    builtin:
+      type: print
+  
+  identity:
+    hostname: YOUR_HOSTNAME
+    username: YOUR_USERNAME
+    password: YOUR_PASSWORD
+
+  user-data:
+    users:
+      - name: YOUR_USERNAME
+        groups: [sudo]
+        shell: /bin/zsh
+        ssh_authorized_keys:
+          - YOUR_SSH_PUBLIC_KEY
+          - YOUR_SSH_PUBLIC_KEY
+          - YOUR_SSH_PUBLIC_KEY
+          - YOUR_SSH_PUBLIC_KEY
+
+    write_files:
+      - path: /etc/apt/apt.conf.d/20auto-upgrades
+        permissions: '0644'
+        owner: root:root
+        content: |
+          APT::Periodic::Update-Package-Lists "1";
+          APT::Periodic::Unattended-Upgrade "1";
+      - path: /etc/apt/apt.conf.d/50unattended-upgrades
+        permissions: '0644'
+        owner: root:root
+        content: |
+          Unattended-Upgrade::Allowed-Origins {
+            "${distro_id}:${distro_codename}-security";
+            "${distro_id}:${distro_codename}-updates";
+          };
+          Unattended-Upgrade::Automatic-Reboot "true";
+          Unattended-Upgrade::Automatic-Reboot-Time "03:30";
+      - path: /etc/fail2ban/jail.d/sshd.local
+        permissions: '0644'
+        owner: root:root
+        content: |
+          [sshd]
+          enabled = true
+          mode = aggressive
+
+    runcmd:
+      - systemctl enable --now fail2ban
+    timezone: Etc/UTC
+    locale: en_US.UTF-8
+    keyboard:
+      layout: us
+
+  ssh:
+    install-server: true
+    allow-pw: false
+    port: 22
+    authorized-keys: #valid during the install process
+      - YOUR_SSH_PUBLIC_KEY
+  
+  # or set ip=dhcp in kernel command line to rely on installer defaults (DHCP)
+  network:
+    version: 2
+    ethernets:
+      eno1:
+        dhcp4: true
+        dhcp6: false
+  
+  storage:
+    layout:
+      name: direct
+
+  apt:
+    geoip: true
+    preserve_sources_list: false
+    primary:
+      - arches: [amd64]
+        uri: http://archive.ubuntu.com/ubuntu
+  
+
+  package_update: true
+  package_upgrade: true
+
+  packages:
+    - htop
+    - nano
+    - git
+    - iotop
+    - build-essential
+    - python3
+    - python3-pip
+    - python3-venv
+    - ufw
+    - ansible
+    - zsh
+    - ca-certificates
+    - curl
+    - gnupg
+    - net-tools
+    - unattended-upgrades
+    - fail2ban
+
+  late-commands:
+    - 'curtin in-target --target=/target -- bash -c "echo ''late-commands: start'' | tee /var/log/late-commands.marker"'
+    - curtin in-target --target=/target -- apt-get dist-upgrade -y
+    - curtin in-target --target=/target -- apt-get autoremove -y
+    
+    - curtin in-target --target=/target -- install -m 0755 -d /etc/apt/keyrings
+    
+    - curtin in-target --target=/target -- ufw --force enable
+
+

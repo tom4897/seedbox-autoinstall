@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hosts • Seedbox Autoinstall v1</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, sans-serif; margin: 2rem; line-height: 1.5; }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+    .grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+    .card { border: 1px solid #8884; border-radius: .5rem; padding: 1rem; }
+    h1 { margin-top: 0; }
+    small { color: #666; }
+  </style>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'"> 
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <meta name="description" content="Directory listing of available host seeds for autoinstall." />
+  <meta name="robots" content="noindex" />
+  <link rel="icon" href="data:," />
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      // Theme + font controls
+      const rootEl = document.documentElement
+      const themeLightBtn = document.getElementById('theme-light')
+      const themeDarkBtn = document.getElementById('theme-dark')
+      const fontIncBtn = document.getElementById('font-inc')
+      const fontDecBtn = document.getElementById('font-dec')
+      const fontResetBtn = document.getElementById('font-reset')
+      const THEME_KEY = 'uiTheme'
+      const FONT_KEY = 'uiFontScale'
+      const applyTheme = (mode) => {
+        rootEl.removeAttribute('data-theme')
+        if (mode === 'light' || mode === 'dark') rootEl.setAttribute('data-theme', mode)
+      }
+      const applyFont = (scale) => {
+        const clamped = Math.max(12, Math.min(22, Math.round(scale)))
+        rootEl.style.setProperty('--base-font-size', `${clamped}px`)
+      }
+      const storedTheme = (localStorage && localStorage.getItem(THEME_KEY)) || 'auto'
+      const storedFont = parseInt((localStorage && localStorage.getItem(FONT_KEY)) || '16', 10)
+      applyTheme(storedTheme)
+      applyFont(isNaN(storedFont) ? 16 : storedFont)
+      if (themeLightBtn) themeLightBtn.addEventListener('click', () => { try { localStorage.setItem(THEME_KEY, 'light') } catch(_){} applyTheme('light') })
+      if (themeDarkBtn) themeDarkBtn.addEventListener('click', () => { try { localStorage.setItem(THEME_KEY, 'dark') } catch(_){} applyTheme('dark') })
+      if (fontIncBtn) fontIncBtn.addEventListener('click', () => { const cur = parseInt(getComputedStyle(rootEl).getPropertyValue('--base-font-size')) || 16; const next = Math.min(cur + 2, 22); try { localStorage.setItem(FONT_KEY, String(next)) } catch(_){} applyFont(next) })
+      if (fontDecBtn) fontDecBtn.addEventListener('click', () => { const cur = parseInt(getComputedStyle(rootEl).getPropertyValue('--base-font-size')) || 16; const next = Math.max(cur - 2, 12); try { localStorage.setItem(FONT_KEY, String(next)) } catch(_){} applyFont(next) })
+      if (fontResetBtn) fontResetBtn.addEventListener('click', () => {
+        const deflt = 16
+        try { localStorage.setItem(FONT_KEY, String(deflt)) } catch(_){ }
+        try { localStorage.setItem(THEME_KEY, 'auto') } catch(_){ }
+        rootEl.removeAttribute('data-theme')
+        applyFont(deflt)
+      })
+
+      // Hosts listing
+      const listEl = document.getElementById('hosts-list')
+      const filterInput = document.getElementById('hosts-filter')
+      const refreshBtn = document.getElementById('hosts-refresh')
+      let allHosts = []
+      // Directory URL for hosts listing (this page sits inside the hosts dir)
+      const hostsDirUrl = new URL('./', location.href)
+
+      const parseDirListing = (html) => {
+        const tmp = document.createElement('div')
+        tmp.innerHTML = html
+        const anchors = Array.from(tmp.querySelectorAll('a'))
+        const basePath = hostsDirUrl.pathname.replace(/\/$/, '/')
+        return anchors
+          .map(a => a.getAttribute('href') || '')
+          .map(href => { try { return new URL(href, hostsDirUrl).pathname } catch (_) { return '' } })
+          .filter(p => !!p && p.startsWith(basePath))
+          .filter(p => /\/$/.test(p))
+          .map(p => p.slice(basePath.length))
+          .map(rest => rest.replace(/^\/+/, ''))
+          .map(rest => rest.split('/')[0] || '')
+          .filter(name => !!name && !name.startsWith('.') && name.toLowerCase() !== '.gitkeep')
+          .filter((v, i, arr) => arr.indexOf(v) === i)
+          .sort()
+      }
+
+      const renderHosts = (hosts) => {
+        const container = document.createElement('div')
+        container.className = 'hosts-grid'
+        hosts.forEach(name => {
+          const li = document.createElement('div')
+          li.className = 'host-item'
+          li.innerHTML = `<strong><a href="./${name}/" target="_blank" rel="noopener">${name}</a></strong>
+            <div class="host-links"><small>Files: <a href="./${name}/meta-data">meta-data</a> · <a href="./${name}/user-data">user-data</a></small></div>
+            <div><small>Last modified: <span data-host="${name}" class="host-lastmod">(loading…)</span></small></div>`
+          container.appendChild(li)
+        })
+        listEl.innerHTML = ''
+        listEl.appendChild(container)
+        // Fetch last-modified for each host (best-effort)
+        const lastmodSpans = container.querySelectorAll('span.host-lastmod')
+        lastmodSpans.forEach(async span => {
+          const n = span.getAttribute('data-host') || ''
+          try {
+            const res = await fetch(`./${n}/meta-data`, { method: 'HEAD', cache: 'no-store' })
+            let lm = res.headers.get('Last-Modified') || res.headers.get('last-modified') || ''
+            if (!lm) {
+              const resGet = await fetch(`./${n}/meta-data`, { method: 'GET', cache: 'no-store' })
+              lm = resGet.headers.get('Last-Modified') || ''
+            }
+            span.textContent = lm || 'unknown'
+          } catch (_) {
+            span.textContent = 'unknown'
+          }
+        })
+      }
+
+      const applyFilter = () => {
+        const q = (filterInput && filterInput.value || '').toLowerCase().trim()
+        const filtered = !q ? allHosts : allHosts.filter(n => n.toLowerCase().includes(q))
+        renderHosts(filtered)
+      }
+
+      const loadHosts = () => {
+        if (!listEl) return
+        listEl.innerHTML = '<p><small>Loading host list…</small></p>'
+        // Fetch directory listing of the hosts folder itself
+        fetch(hostsDirUrl.href, { credentials: 'same-origin', cache: 'no-store' })
+          .then(async (res) => {
+            const text = await res.text().catch(() => '')
+            if (!res.ok) {
+              const code = res.status || 'unknown'
+              listEl.innerHTML = `<p><small>Could not list hosts: HTTP ${code}.</small></p>`
+              return []
+            }
+            return parseDirListing(text)
+          })
+          .then((names) => {
+            if (!Array.isArray(names) || names.length === 0) {
+              listEl.innerHTML = '<p><small>No hosts found (directory listing returned no directories).</small></p>'
+              allHosts = []
+              return
+            }
+            allHosts = names
+            applyFilter()
+          })
+          .catch(() => {
+            listEl.innerHTML = '<p><small>Could not list hosts (network error).</small></p>'
+          })
+      }
+
+      if (filterInput) filterInput.addEventListener('input', applyFilter)
+      if (refreshBtn) refreshBtn.addEventListener('click', loadHosts)
+      loadHosts()
+    })
+  </script>
+  <noscript>
+    <style>.js-note{display:none}</style>
+  </noscript>
+  <style>
+    .kbd { border: 1px solid #8884; border-bottom-width: 2px; padding: 0 .3rem; border-radius: .25rem; font-size: .95em; }
+    .btn { display: inline-block; padding: .5rem .75rem; border: 1px solid #8884; border-radius: .5rem; background: transparent; cursor: pointer; }
+    .btn:active { transform: translateY(1px); }
+    :root { --base-font-size: 16px; }
+    body { font-size: var(--base-font-size); }
+    [data-theme="dark"] { color-scheme: dark; }
+    [data-theme="light"] { color-scheme: light; }
+    .toolbar { position: sticky; top: 0; z-index: 10; padding: .5rem 0; margin-bottom: .5rem; backdrop-filter: blur(4px); }
+    .toolbar-inner { display: flex; gap: .5rem; align-items: center; justify-content: flex-end; }
+    .toolbar .group { display: inline-flex; gap: .25rem; align-items: center; }
+    .toolbar .label { font-size: .85em; opacity: .8; }
+    .control { padding: .4rem .6rem; border: 1px solid #8884; border-radius: .4rem; background: transparent; }
+    .controls { display: flex; gap: .5rem; align-items: center; margin-bottom: .5rem; flex-wrap: wrap; }
+    .host-links { margin-top: .15rem; opacity: .85; }
+    .host-links a { text-decoration: none; }
+    .host-links a:hover { text-decoration: underline; }
+    .hosts-grid { display: flex; flex-direction: column; gap: .5rem; }
+    .host-item { padding: .25rem 0; border-top: 1px dashed #8884; }
+    .host-item:first-child { border-top: 0; }
+    :root {
+      --link: #0a66c2;
+      --link-visited: #0a66c2;
+      --link-hover: #0858a6;
+      --link-active: #074a8f;
+    }
+    [data-theme="dark"] {
+      --link: #7fb8ff;
+      --link-visited: #7fb8ff;
+      --link-hover: #a6cdff;
+      --link-active: #cce0ff;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme]) {
+        --link: #7fb8ff;
+        --link-visited: #7fb8ff;
+        --link-hover: #a6cdff;
+        --link-active: #cce0ff;
+      }
+    }
+    body a { color: var(--link) !important; }
+    body a:visited { color: var(--link-visited) !important; }
+    body a:hover { color: var(--link-hover) !important; }
+    body a:active { color: var(--link-active) !important; }
+  </style>
+  <base target="_blank">
+</head>
+<body>
+  <div class="toolbar">
+    <div class="toolbar-inner">
+      <div class="group">
+        <span class="label"></span>
+        <button class="btn" type="button" id="theme-light">Light</button>
+        <button class="btn" type="button" id="theme-dark">Dark</button>
+      </div>
+      <div class="group">
+        <span class="label"></span>
+        <button class="btn" type="button" id="font-dec">A-</button>
+        <button class="btn" type="button" id="font-inc">A+</button>
+        <button class="btn" type="button" id="font-reset" title="Reset theme and zoom" aria-label="Reset theme and zoom">↺</button>
+      </div>
+    </div>
+  </div>
+
+  <h1>Available Hosts</h1>
+  <p class="js-note"><small>This page lists subdirectories in <code>cloud-init/v1/hosts/</code>. Each host should contain <code>meta-data</code> and <code>user-data</code>.</small></p>
+
+  <section class="card">
+    <div class="controls">
+      <input id="hosts-filter" class="control" type="search" placeholder="Filter hosts…" aria-label="Filter hosts">
+      <button id="hosts-refresh" class="btn" type="button">Refresh</button>
+    </div>
+    <div id="hosts-list"><p><small>Loading host list…</small></p></div>
+  </section>
+
+  <p align="center"><small>(c) 2025 <a href="https://deerhide.run">Deerhide</a>, <a href="https://github.com/tom4897">tom4897</a>. All rights reserved.<br>
+    License: <a href="https://github.com/DeerHide/seedbox-autoinstall/blob/main/LICENSE">MIT License</a> 
+    | Repo: <a href="https://github.com/tom4897/seedbox-autoinstall">tom4897/seedbox-autoinstall</a></small></p>
+</body>
+</html>
+
+

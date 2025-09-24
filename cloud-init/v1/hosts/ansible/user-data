@@ -1,0 +1,45 @@
+#cloud-config
+autoinstall:
+  version: 1
+  interactive-sections: []
+  shutdown: reboot
+
+  identity:
+    hostname: YOUR_HOSTNAME
+    username: deerhide-operator
+    password: YOUR_PASSWORD
+
+  user-data:
+    users:
+      - name: deerhide-operator
+        groups: [sudo]
+        shell: /bin/zsh
+        ssh_authorized_keys:
+           - SSH_PUBLIC_KEY
+           - SSH_PUBLIC_KEY
+           - SSH_PUBLIC_KEY
+
+    timezone: Etc/UTC
+    locale: en_US.UTF-8
+    keyboard:
+      layout: us
+
+  storage:
+    layout:
+      name: direct
+
+  packages:
+    - git
+
+  package_update: true
+  package_upgrade: true
+
+  ansible:
+    install_method: pip
+    pull:
+      - url: "https://github.com/DeerHide/infra_deerhide.git"
+        playbook_names: [YOUR_HOSTNAME.yml]
+
+  late-commands:
+    - curtin in-target --target=/target -- bash -c "printf 'PasswordAuthentication no\nChallengeResponseAuthentication no\n' > /etc/ssh/sshd_config.d/10-hardening.conf && chmod 644 /etc/ssh/sshd_config.d/10-hardening.conf && systemctl reload ssh || true"
+
