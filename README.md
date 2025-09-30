@@ -34,24 +34,30 @@ Quick start (ISO / USB NoCloud)
 Quick start (serve over HTTP)
 -----------------------------
 
-- Serve the version folder `cloud-init/v1/` with any static web server and point the installer to the URLs for your host:
+- Serve the version folder `cloud-init/v1/` with any static web server.
+- Use the included landing page and hosts browser to verify paths.
+  - Landing page: `.../cloud-init/v1/index.html`
+  - Hosts list: `.../cloud-init/v1/hosts/_list.html`
+- The installer will fetch these files for your chosen host:
   - `.../hosts/<your-host>/user-data`
   - `.../hosts/<your-host>/meta-data`
 
 Example from the repository root:
 
 ```bash
-python -m http.server 8000 --directory cloud-init/v1
-# Then use:
-# http://<server>:8000/hosts/<your-host>/
+python -m http.server 8000 --directory cloud-init/
+# Open the helper page in a browser to copy the computed URL:
+# http://<server>:8000/index.html
+# Or browse host seeds directly:
+# http://<server>:8000/hosts/_list.html
 ```
 
-Note: the address needs to be accessible from the server!
+Note: the address needs to be accessible from the target server being installed.
 
 Ubuntu installer kernel line (NoCloud-Net)
 -----------------------------------------
 
-When booting the Ubuntu installer (GRUB/syslinux), add the following to the kernel command line to enable unattended install via HTTP:
+When booting the Ubuntu installer (GRUB/syslinux), add the following to the kernel command line to enable unattended install via HTTP. The helper page shows this with your exact base URL and offers a one-click copy.
 
 ```text
 autoinstall ds="nocloud-net;s=http://ashley/cloud-init/v1/hosts/<hostname>/" ip=dhcp
@@ -85,6 +91,7 @@ Directory layout
       - `meta-data`
       - `user-data`
   - `index.html` → optional landing page if serving over HTTP
+  - `hosts/_list.html` → optional host browser page when serving over HTTP
 - `scripts/`
   - `validate_autoinstall.py` → checks your host profiles
   - `ubuntu_autoinstall_schema.json` → validation schema
@@ -122,6 +129,10 @@ The validator checks:
 
 - Presence and basic correctness of `meta-data` (`instance-id`, `local-hostname`).
 - `user-data` YAML, top-level `#cloud-config`, and `autoinstall` structure against the official JSON schema.
+
+Schema reference:
+
+- The JSON schema used by the validator is vendored at `scripts/ubuntu_autoinstall_schema.json`. See Canonical Subiquity Autoinstall documentation for upstream details.
 
 Todo list
 ---------
