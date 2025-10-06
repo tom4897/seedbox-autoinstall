@@ -19,7 +19,7 @@
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
-  <meta name="description" content="How to boot Ubuntu Server with autoinstall using NoCloud-Net and available host seeds." />
+  <meta name="description" content="How to boot Ubuntu Server with autoinstall using NoCloud and available host seeds." />
   <meta name="robots" content="noindex" />
   <link rel="icon" href="data:," />
   <script>
@@ -239,7 +239,7 @@
         if (!snippetEl) return ''
         const span = snippetEl.querySelector('#example-url')
         // Build plain text with the computed example URL
-        const prefix = 'autoinstall ds="nocloud-net;s='
+        const prefix = 'autoinstall ds="nocloud;s='
         const suffix = '" ip=dhcp'
         const baseUrl = span ? span.textContent : ''
         return prefix + baseUrl + suffix
@@ -404,7 +404,7 @@
         <li>At the Ubuntu Server installer GRUB screen, press <span class="kbd">e</span> to edit.</li>
         <li>Find the line starting with <code>linux</code> and append:</li>
       </ol>
-      <pre><code id="grub-snippet">autoinstall ds="nocloud-net;s=<span id="example-url">http://YOUR-SERVER/cloud-init/v1/hosts/&lt;hostname&gt;/</span>" ip=dhcp</code></pre>
+      <pre><code id="grub-snippet">autoinstall ds="nocloud;s=<span id="example-url">http://YOUR-SERVER/cloud-init/v1/hosts/&lt;hostname&gt;/</span>" ip=dhcp</code></pre>
       <p style="margin-top:.5rem"><button id="copy-grub" type="button" class="btn">Copy command</button> <small id="copy-grub-status" aria-live="polite" style="margin-left:.5rem"></small></p>
       <p>Then press <span class="kbd">Ctrl</span>+<span class="kbd">X</span> (or <span class="kbd">F10</span>) to boot.</p>
       <p class="js-note"><small>(This page auto-fills the correct URL base.)</small></p>

@@ -60,7 +60,7 @@ Ubuntu installer kernel line (NoCloud-Net)
 When booting the Ubuntu installer (GRUB/syslinux), add the following to the kernel command line to enable unattended install via HTTP. The helper page shows this with your exact base URL and offers a one-click copy.
 
 ```text
-autoinstall ds="nocloud-net;s=http://ashley/cloud-init/v1/hosts/<hostname>/" ip=dhcp
+autoinstall ds="nocloud;s=http://ashley/cloud-init/v1/hosts/<hostname>/" ip=dhcp
 ```
 
 Notes:
